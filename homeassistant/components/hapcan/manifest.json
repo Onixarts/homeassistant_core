@@ -1,0 +1,11 @@
+{
+  "domain": "hapcan",
+  "name": "Hapcan",
+  "codeowners": ["@onixarts"],
+  "config_flow": false,
+  "dependencies": [],
+  "documentation": "https://www.home-assistant.io/integrations/hapcan",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "quality_scale": "bronze"
+}
