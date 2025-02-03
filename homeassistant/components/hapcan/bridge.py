@@ -17,6 +17,9 @@ class HapcanBridge:
         self.incoming_message_index = 0
         self.data_callback = None
         self.is_connected = False
+        self.listetning_task = None
+        self.sending_buffer = asyncio.Queue()
+        self.sending_task = None
 
     async def connect(self):
         try:
@@ -26,7 +29,10 @@ class HapcanBridge:
             )
             self.is_connected = True
             _LOGGER.info("Connected to HAPCAN bridge at %s:%s", self.host, self.port)
-            asyncio.create_task(self.listen())
+            self.listetning_task = asyncio.create_task(self.listen())
+
+            self.sending_task = asyncio.create_task(self.process_sending_buffer())
+
         except Exception as e:
             self.is_connected = False
             _LOGGER.error(
@@ -35,6 +41,7 @@ class HapcanBridge:
                 self.port,
                 e,
             )
+            await asyncio.sleep(5)
 
     def register_callback(self, callback):
         self.data_callback = callback
@@ -46,6 +53,11 @@ class HapcanBridge:
                 if data:
                     await self.handle_data(data)
             except asyncio.CancelledError:
+                break
+            except Exception as e:
+                _LOGGER.error("Error while listening: %s", e)
+                self.is_connected = False
+                self.listetning_task = asyncio.create_task(self.connect())
                 break
 
     async def handle_data(self, data):
@@ -75,13 +87,41 @@ class HapcanBridge:
 
             self.incoming_message_index += 1
 
-    def send(self, data):
-        """Wysyła dane do mostka HAPCAN."""
-        if self.writer:
-            self.writer.write(data)
-            _LOGGER.info("Data sent: %s", self.message_to_string(data))
-        else:
-            _LOGGER.error("Not connected to HAPCAN bridge")
+    async def internal_send(self, payload):
+        try:
+            sum_val = 0
+            if len(payload) == 15:
+                for i in range(1, 13):
+                    sum_val += payload[i]
+                payload[13] = sum_val % 256
+            elif len(payload) == 13:
+                for i in range(1, 11):
+                    sum_val += payload[i]
+                payload[11] = sum_val % 256
+
+            if self.log_frames:
+                _LOGGER.info("Sending  >> %s", self.message_to_string(payload))
+
+            if self.writer:
+                self.writer.write(payload)
+                await self.writer.drain()
+            else:
+                _LOGGER.error("Not connected to HAPCAN bridge")
+        except Exception as e:
+            _LOGGER.error(e)
+
+    def send(self, msg):
+        _LOGGER.debug("send")
+        if self.is_connected:
+            if msg.get("payload") is not None and isinstance(msg["payload"], bytearray):
+                self.sending_buffer.put_nowait(msg["payload"])
+                _LOGGER.info("Queued: %s", self.message_to_string(msg["payload"]))
+
+    async def process_sending_buffer(self):
+        while True:
+            payload = await self.sending_buffer.get()
+            await self.internal_send(payload)
+            await asyncio.sleep(0.1)
 
     def message_received(self, frame):
         if self.log_frames:
@@ -99,6 +139,7 @@ class HapcanBridge:
         if self.writer:
             self.writer.close()
             _LOGGER.info("Connection to HAPCAN bridge closed")
+        self.is_connected = False
 
     def is_connected(self):
         return self.is_connected

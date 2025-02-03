@@ -44,6 +44,28 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
 
     hass.data[DOMAIN] = bridge
 
+    frame = bytearray(
+        [
+            0xAA,
+            0x30,
+            0x30,
+            0x03,
+            0x02,
+            0xFF,
+            0xFF,
+            0x07,
+            0x40,
+            0x04,
+            0xFF,
+            0xFF,
+            0xFF,
+            0xAB,
+            0xA5,
+        ]
+    )
+    bridge.send({"payload": frame})
+    bridge.send({"payload": frame})
+
     # Dodatkowe kroki inicjalizacji można dodać tutaj
 
     return True
